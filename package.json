@@ -1,23 +1,20 @@
 {
-  "success": true,
-  "analysis": {
-    "differencePercentage": 18,
-    "summary": "The challenger page closely follows the baseline layout, but key conversion elements and subheaders are missing.",
-    "missingFromBaseline": [
-      "Secondary 'Book Appointment' CTA button in the hero section",
-      "Trust badge icons below the main headline",
-      "Footer phone number link"
-    ],
-    "addedInChallenger": [
-      "New promotional banner above the main header"
-    ],
-    "designDiscrepancies": [
-      "Hero section background color shifted from light gray (#f8fafc) to dark slate (#0f172a)",
-      "Primary heading typography font size reduced from 48px equivalent to ~36px"
-    ]
+  "name": "qa-diff-engine",
+  "version": "1.0.0",
+  "description": "AI Visual Design Comparison Engine",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
   },
-  "images": {
-    "baseline": "/results/baseline.png",
-    "challenger": "/results/challenger.png"
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "openai": "^4.28.0",
+    "playwright": "^1.42.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
