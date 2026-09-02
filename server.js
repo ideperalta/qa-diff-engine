@@ -30,7 +30,7 @@ app.post('/api/compare', async (req, res) => {
     let browser;
     try {
         browser = await chromium.launch({
-            args: ['--no-sandbox', '--disable-setuid-sandbox'] // Required for cloud environments
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
         
         const context = await browser.newContext({
@@ -40,20 +40,29 @@ app.post('/api/compare', async (req, res) => {
         const pageA = await context.newPage();
         const pageB = await context.newPage();
 
+        console.log(`Navigating to ${urlA} and ${urlB}...`);
+
+        // FIX: Changed from 'networkidle' to 'load' and increased timeout to 60 seconds
         await Promise.all([
-            pageA.goto(urlA, { waitUntil: 'networkidle', timeout: 30000 }),
-            pageB.goto(urlB, { waitUntil: 'networkidle', timeout: 30000 })
+            pageA.goto(urlA, { waitUntil: 'load', timeout: 60000 }),
+            pageB.goto(urlB, { waitUntil: 'load', timeout: 60000 })
         ]);
+
+        // Add a tiny 2-second buffer for final CSS animations to settle
+        await pageA.waitForTimeout(2000);
+        await pageB.waitForTimeout(2000);
 
         const pathA = path.join(publicDir, 'baseline.png');
         const pathB = path.join(publicDir, 'challenger.png');
         const pathDiff = path.join(publicDir, 'diff.png');
 
+        console.log('Capturing screenshots...');
         await pageA.screenshot({ path: pathA, fullPage: true });
         await pageB.screenshot({ path: pathB, fullPage: true });
         
         await browser.close();
 
+        console.log('Comparing pixels...');
         const img1 = PNG.sync.read(fs.readFileSync(pathA));
         const img2 = PNG.sync.read(fs.readFileSync(pathB));
         
@@ -71,6 +80,7 @@ app.post('/api/compare', async (req, res) => {
 
         fs.writeFileSync(pathDiff, PNG.sync.write(diff));
 
+        console.log('Analysis complete. Sending to frontend.');
         res.json({
             mismatchedPixels,
             match: mismatchedPixels === 0,
@@ -83,11 +93,10 @@ app.post('/api/compare', async (req, res) => {
 
     } catch (error) {
         if (browser) await browser.close();
-        console.error(error);
+        console.error('SERVER ERROR:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Bind to cloud provider's port, fallback to 3000 locally
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`QA Engine live on port ${PORT}`));
