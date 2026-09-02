@@ -1,23 +1,24 @@
 const express = require('express');
 const cors = require('cors');
-const { chromium } = require('playwright');
+// === STEALTH PLUGINS ADDED HERE ===
+const { chromium } = require('playwright-extra'); 
+const stealth = require('puppeteer-extra-plugin-stealth')();
+chromium.use(stealth);
+// ==================================
 const fs = require('fs');
 const PNG = require('pngjs').PNG;
 const pixelmatch = require('pixelmatch');
 const path = require('path');
 
 const app = express();
-// Allow requests from your CMS domain
 app.use(cors({ origin: '*' })); 
 app.use(express.json());
 
-// Ensure public directory exists for storing images
 const publicDir = path.join(__dirname, 'public');
 if (!fs.existsSync(publicDir)) {
     fs.mkdirSync(publicDir);
 }
 
-// Serve the generated images securely
 app.use('/results', express.static(publicDir));
 
 app.post('/api/compare', async (req, res) => {
@@ -34,7 +35,9 @@ app.post('/api/compare', async (req, res) => {
         });
         
         const context = await browser.newContext({
-            viewport: { width: viewportWidth, height: 900 }
+            viewport: { width: viewportWidth, height: 900 },
+            // === SPOOFING A REAL GOOGLE CHROME BROWSER ===
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         });
 
         const pageA = await context.newPage();
@@ -42,13 +45,11 @@ app.post('/api/compare', async (req, res) => {
 
         console.log(`Navigating to ${urlA} and ${urlB}...`);
 
-        // FIX: Changed from 'networkidle' to 'load' and increased timeout to 60 seconds
         await Promise.all([
             pageA.goto(urlA, { waitUntil: 'load', timeout: 60000 }),
             pageB.goto(urlB, { waitUntil: 'load', timeout: 60000 })
         ]);
 
-        // Add a tiny 2-second buffer for final CSS animations to settle
         await pageA.waitForTimeout(2000);
         await pageB.waitForTimeout(2000);
 
