@@ -1,5 +1,5 @@
-# 1. Use the pre-packaged Microsoft environment
-FROM mcr.microsoft.com/playwright:v1.42.1-jammy
+# 1. Use the pre-packaged Microsoft environment (Updated to 1.62.1)
+FROM mcr.microsoft.com/playwright:v1.62.1-jammy
 
 # 2. Set the working folder inside the container
 WORKDIR /app
