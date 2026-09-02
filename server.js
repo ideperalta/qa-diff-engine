@@ -41,31 +41,38 @@ app.post('/api/compare', async (req, res) => {
         const pathB = path.join(publicDir, 'challenger.png');
         const pathDiff = path.join(publicDir, 'diff.png');
 
-        // === MEMORY FIX: Process Page A entirely, then close it ===
         console.log(`Navigating to Baseline: ${urlA}...`);
         const pageA = await context.newPage();
         await pageA.goto(urlA, { waitUntil: 'load', timeout: 60000 });
         await pageA.waitForTimeout(2000);
         await pageA.screenshot({ path: pathA, fullPage: true });
-        await pageA.close(); // Free RAM
+        await pageA.close();
 
-        // === MEMORY FIX: Process Page B entirely, then close it ===
         console.log(`Navigating to Challenger: ${urlB}...`);
         const pageB = await context.newPage();
         await pageB.goto(urlB, { waitUntil: 'load', timeout: 60000 });
         await pageB.waitForTimeout(2000);
         await pageB.screenshot({ path: pathB, fullPage: true });
-        await pageB.close(); // Free RAM
+        await pageB.close();
         
-        await browser.close(); // Close browser before doing heavy image math
+        await browser.close();
 
-        console.log('Comparing pixels...');
-        const img1 = PNG.sync.read(fs.readFileSync(pathA));
-        const img2 = PNG.sync.read(fs.readFileSync(pathB));
+        console.log('Comparing pixels with dimension normalization...');
+        const rawImg1 = PNG.sync.read(fs.readFileSync(pathA));
+        const rawImg2 = PNG.sync.read(fs.readFileSync(pathB));
         
-        // Ensure both images are the exact same dimensions to prevent pixelmatch crash
-        const width = Math.min(img1.width, img2.width);
-        const height = Math.min(img1.height, img2.height);
+        // Calculate common canvas bounds
+        const width = Math.min(rawImg1.width, rawImg2.width);
+        const height = Math.min(rawImg1.height, rawImg2.height);
+
+        // Crop image 1 to fit bounds
+        const img1 = new PNG({ width, height });
+        PNG.bitblt(rawImg1, img1, 0, 0, width, height, 0, 0);
+
+        // Crop image 2 to fit bounds
+        const img2 = new PNG({ width, height });
+        PNG.bitblt(rawImg2, img2, 0, 0, width, height, 0, 0);
+
         const diff = new PNG({ width, height });
 
         const mismatchedPixels = pixelmatch(
