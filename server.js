@@ -1,10 +1,8 @@
 const express = require('express');
 const cors = require('cors');
-// === STEALTH PLUGINS ADDED HERE ===
 const { chromium } = require('playwright-extra'); 
 const stealth = require('puppeteer-extra-plugin-stealth')();
 chromium.use(stealth);
-// ==================================
 const fs = require('fs');
 const PNG = require('pngjs').PNG;
 const pixelmatch = require('pixelmatch');
@@ -25,49 +23,49 @@ app.post('/api/compare', async (req, res) => {
     const { urlA, urlB, viewportWidth = 1440 } = req.body;
 
     if (!urlA || !urlB) {
-        return res.status(400).json({ error: 'Both urlA and urlB are required.' });
+        return res.status(400).json({ error: 'Both urls are required.' });
     }
 
     let browser;
     try {
         browser = await chromium.launch({
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         });
         
         const context = await browser.newContext({
             viewport: { width: viewportWidth, height: 900 },
-            // === SPOOFING A REAL GOOGLE CHROME BROWSER ===
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         });
-
-        const pageA = await context.newPage();
-        const pageB = await context.newPage();
-
-        console.log(`Navigating to ${urlA} and ${urlB}...`);
-
-        await Promise.all([
-            pageA.goto(urlA, { waitUntil: 'load', timeout: 60000 }),
-            pageB.goto(urlB, { waitUntil: 'load', timeout: 60000 })
-        ]);
-
-        await pageA.waitForTimeout(2000);
-        await pageB.waitForTimeout(2000);
 
         const pathA = path.join(publicDir, 'baseline.png');
         const pathB = path.join(publicDir, 'challenger.png');
         const pathDiff = path.join(publicDir, 'diff.png');
 
-        console.log('Capturing screenshots...');
+        // === MEMORY FIX: Process Page A entirely, then close it ===
+        console.log(`Navigating to Baseline: ${urlA}...`);
+        const pageA = await context.newPage();
+        await pageA.goto(urlA, { waitUntil: 'load', timeout: 60000 });
+        await pageA.waitForTimeout(2000);
         await pageA.screenshot({ path: pathA, fullPage: true });
+        await pageA.close(); // Free RAM
+
+        // === MEMORY FIX: Process Page B entirely, then close it ===
+        console.log(`Navigating to Challenger: ${urlB}...`);
+        const pageB = await context.newPage();
+        await pageB.goto(urlB, { waitUntil: 'load', timeout: 60000 });
+        await pageB.waitForTimeout(2000);
         await pageB.screenshot({ path: pathB, fullPage: true });
+        await pageB.close(); // Free RAM
         
-        await browser.close();
+        await browser.close(); // Close browser before doing heavy image math
 
         console.log('Comparing pixels...');
         const img1 = PNG.sync.read(fs.readFileSync(pathA));
         const img2 = PNG.sync.read(fs.readFileSync(pathB));
         
-        const { width, height } = img1;
+        // Ensure both images are the exact same dimensions to prevent pixelmatch crash
+        const width = Math.min(img1.width, img2.width);
+        const height = Math.min(img1.height, img2.height);
         const diff = new PNG({ width, height });
 
         const mismatchedPixels = pixelmatch(
@@ -81,7 +79,7 @@ app.post('/api/compare', async (req, res) => {
 
         fs.writeFileSync(pathDiff, PNG.sync.write(diff));
 
-        console.log('Analysis complete. Sending to frontend.');
+        console.log('Analysis complete.');
         res.json({
             mismatchedPixels,
             match: mismatchedPixels === 0,
