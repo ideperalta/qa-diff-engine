@@ -4,15 +4,16 @@ const { chromium } = require('playwright-extra');
 const stealth = require('puppeteer-extra-plugin-stealth')();
 chromium.use(stealth);
 const fs = require('fs');
-const PNG = require('pngjs').PNG;
-const pixelmatch = require('pixelmatch');
 const path = require('path');
+const OpenAI = require('openai');
 
 const app = express();
 app.use(cors({ origin: '*' })); 
 app.use(express.json());
 
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const publicDir = path.join(__dirname, 'public');
+
 if (!fs.existsSync(publicDir)) {
     fs.mkdirSync(publicDir);
 }
@@ -23,7 +24,7 @@ app.post('/api/compare', async (req, res) => {
     const { urlA, urlB, viewportWidth = 1440 } = req.body;
 
     if (!urlA || !urlB) {
-        return res.status(400).json({ error: 'Both urls are required.' });
+        return res.status(400).json({ error: 'Both urlA and urlB are required.' });
     }
 
     let browser;
@@ -39,61 +40,63 @@ app.post('/api/compare', async (req, res) => {
 
         const pathA = path.join(publicDir, 'baseline.png');
         const pathB = path.join(publicDir, 'challenger.png');
-        const pathDiff = path.join(publicDir, 'diff.png');
 
-        console.log(`Navigating to Baseline: ${urlA}...`);
+        // 1. Capture Baseline
         const pageA = await context.newPage();
         await pageA.goto(urlA, { waitUntil: 'load', timeout: 60000 });
         await pageA.waitForTimeout(2000);
-        await pageA.screenshot({ path: pathA, fullPage: true });
+        await pageA.screenshot({ path: pathA, fullPage: false }); // Viewport fold comparison for memory efficiency
         await pageA.close();
 
-        console.log(`Navigating to Challenger: ${urlB}...`);
+        // 2. Capture Challenger
         const pageB = await context.newPage();
         await pageB.goto(urlB, { waitUntil: 'load', timeout: 60000 });
         await pageB.waitForTimeout(2000);
-        await pageB.screenshot({ path: pathB, fullPage: true });
+        await pageB.screenshot({ path: pathB, fullPage: false });
         await pageB.close();
         
         await browser.close();
 
-        console.log('Comparing pixels with dimension normalization...');
-        const rawImg1 = PNG.sync.read(fs.readFileSync(pathA));
-        const rawImg2 = PNG.sync.read(fs.readFileSync(pathB));
-        
-        // Calculate common canvas bounds
-        const width = Math.min(rawImg1.width, rawImg2.width);
-        const height = Math.min(rawImg1.height, rawImg2.height);
+        // 3. Encode images to Base64 for AI Vision analysis
+        const base64ImageA = fs.readFileSync(pathA).toString('base64');
+        const base64ImageB = fs.readFileSync(pathB).toString('base64');
 
-        // Crop image 1 to fit bounds
-        const img1 = new PNG({ width, height });
-        PNG.bitblt(rawImg1, img1, 0, 0, width, height, 0, 0);
+        // 4. Request Visual AI Comparison
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o",
+            response_format: { type: "json_object" },
+            messages: [
+                {
+                    role: "system",
+                    content: `You are an expert QA and UX Automation Engineer. Compare Image 1 (Baseline Design) against Image 2 (Challenger Design). 
+                    Analyze structural, layout, style, and content differences. Return a JSON object with:
+                    {
+                      "differencePercentage": number (0-100),
+                      "summary": "High-level summary of the comparison",
+                      "missingFromBaseline": ["List of elements present in Image 1 but missing in Image 2"],
+                      "addedInChallenger": ["List of new elements present in Image 2 but absent in Image 1"],
+                      "designDiscrepancies": ["Specific style, font, color, or layout alignment shifts"]
+                    }`
+                },
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: "Compare Baseline (Image 1) and Challenger (Image 2):" },
+                        { type: "image_url", image_url: { url: `data:image/png;base64,${base64ImageA}` } },
+                        { type: "image_url", image_url: { url: `data:image/png;base64,${base64ImageB}` } }
+                    ]
+                }
+            ]
+        });
 
-        // Crop image 2 to fit bounds
-        const img2 = new PNG({ width, height });
-        PNG.bitblt(rawImg2, img2, 0, 0, width, height, 0, 0);
+        const analysis = JSON.parse(response.choices[0].message.content);
 
-        const diff = new PNG({ width, height });
-
-        const mismatchedPixels = pixelmatch(
-            img1.data, 
-            img2.data, 
-            diff.data, 
-            width, 
-            height, 
-            { threshold: 0.1, diffColor: [255, 0, 0] }
-        );
-
-        fs.writeFileSync(pathDiff, PNG.sync.write(diff));
-
-        console.log('Analysis complete.');
         res.json({
-            mismatchedPixels,
-            match: mismatchedPixels === 0,
+            success: true,
+            analysis,
             images: {
                 baseline: '/results/baseline.png',
-                challenger: '/results/challenger.png',
-                diff: '/results/diff.png'
+                challenger: '/results/challenger.png'
             }
         });
 
@@ -105,4 +108,4 @@ app.post('/api/compare', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`QA Engine live on port ${PORT}`));
+app.listen(PORT, () => console.log(`Design Intelligence Engine live on port ${PORT}`));
